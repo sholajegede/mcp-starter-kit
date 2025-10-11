@@ -1,0 +1,69 @@
+{
+  "name": "mcp-starter-kit",
+  "version": "1.4.9",
+  "description": "Universal MCP starter kit with authentication, database, and billing",
+  "main": "dist/universal-server.js",
+  "bin": {
+    "mcp": "./bin/mcp-starter",
+    "mcp-starter": "./bin/mcp-starter",
+    "mcp-starter-kit": "./bin/mcp-starter"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/universal-server.js",
+    "dev": "tsx src/universal-server.ts",
+    "universal": "tsx src/universal-server.ts",
+    "universal:blog": "APP_TYPE=blog tsx src/universal-server.ts",
+    "universal:ecommerce": "APP_TYPE=ecommerce tsx src/universal-server.ts",
+    "universal:crm": "APP_TYPE=crm tsx src/universal-server.ts",
+    "universal:todo": "APP_TYPE=todo tsx src/universal-server.ts",
+    "auth-server": "tsx src/kinde-auth-server.ts",
+    "setup-db": "tsx src/setup-db.ts",
+    "prepublishOnly": "npm run build",
+    "postinstall": "echo '🚀 MCP Starter Kit installed! Run: npx mcp-starter-kit'"
+  },
+  "dependencies": {
+    "@kinde-oss/kinde-typescript-sdk": "^2.13.0",
+    "@modelcontextprotocol/sdk": "^1.19.0",
+    "@neondatabase/serverless": "^0.9.0",
+    "@types/express": "^5.0.3",
+    "@types/express-session": "^1.18.2",
+    "commander": "^11.0.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.21.2",
+    "express-session": "^1.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-client": "^2.0.5"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "starter-kit",
+    "authentication",
+    "database",
+    "billing",
+    "cursor",
+    "ai"
+  ],
+  "author": "Shola Jegede",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sholajegede/mcp-starter-kit.git"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "src/",
+    "README.md",
+    "INSTALLATION.md",
+    "package.json"
+  ]
+}

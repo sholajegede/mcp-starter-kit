@@ -1,6 +1,6 @@
 {
   "name": "mcp-starter-kit",
-  "version": "1.4.9",
+  "version": "1.4.9" // Auto-updated,
   "description": "Universal MCP starter kit with authentication, database, and billing",
   "main": "dist/universal-server.js",
   "bin": {
