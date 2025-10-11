@@ -2,7 +2,7 @@
 
 Thank you for your interest in contributing to MCP Starter Kit! This document provides guidelines and information for contributors.
 
-## 🚀 Quick Start
+## Quick Start
 
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
@@ -19,7 +19,7 @@ Thank you for your interest in contributing to MCP Starter Kit! This document pr
    git checkout -b feature/your-feature-name
    ```
 
-## 🛠️ Development Setup
+## Development Setup
 
 ### Prerequisites
 - Node.js 18+ 
@@ -41,7 +41,7 @@ node bin/mcp-starter
 npx mcp-starter-kit test-app todo
 ```
 
-## 📝 How to Contribute
+## How to Contribute
 
 ### 1. Reporting Issues
 - Use the GitHub issue tracker
@@ -80,7 +80,7 @@ test: add unit tests for CLI generation
 4. **Update version** in package.json if needed
 5. **Create pull request** with clear description
 
-## 🧪 Testing
+## Testing
 
 ### Running Tests
 ```bash
@@ -99,7 +99,7 @@ npm test -- --grep "CLI generation"
 - Test both success and error cases
 - Include integration tests for CLI workflows
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 mcp-starter-kit/
@@ -116,7 +116,7 @@ mcp-starter-kit/
 └── tests/                # Test files
 ```
 
-## 🎯 Areas for Contribution
+## Areas for Contribution
 
 ### High Priority
 - **New Templates**: Add more application templates (CRM, e-commerce, etc.)
@@ -135,7 +135,7 @@ mcp-starter-kit/
 - **Plugins**: Plugin system for extending functionality
 - **Analytics**: Usage tracking and insights
 
-## 🔧 Development Guidelines
+## Development Guidelines
 
 ### Adding New Templates
 1. Create template config in `src/examples/`
@@ -157,7 +157,7 @@ mcp-starter-kit/
 - Keep PRs focused and reasonably sized
 - Ensure CI passes before requesting review
 
-## 🐛 Bug Reports
+## Bug Reports
 
 When reporting bugs, please include:
 
@@ -176,7 +176,7 @@ When reporting bugs, please include:
    - Related issues
    - Workarounds found
 
-## 💡 Feature Requests
+## Feature Requests
 
 When suggesting features:
 
@@ -185,7 +185,7 @@ When suggesting features:
 3. **Alternatives**: Other approaches considered
 4. **Additional context**: Screenshots, mockups, examples
 
-## 📋 Release Process
+## Release Process
 
 1. **Version bump** in package.json
 2. **Update CHANGELOG.md**
@@ -193,7 +193,7 @@ When suggesting features:
 4. **Publish to npm**
 5. **Update GitHub releases**
 
-## 🤝 Community Guidelines
+## Community Guidelines
 
 ### Code of Conduct
 - Be respectful and inclusive
@@ -207,7 +207,7 @@ When suggesting features:
 - Be patient with responses
 - Help others when you can
 
-## 📚 Resources
+## Resources
 
 ### Documentation
 - [MCP Protocol Documentation](https://modelcontextprotocol.io/)
@@ -220,7 +220,7 @@ When suggesting features:
 - [GitHub CLI](https://cli.github.com/) - GitHub integration
 - [Commitizen](https://commitizen.github.io/cz-cli/) - Commit message formatting
 
-## 🎉 Recognition
+## Recognition
 
 Contributors will be:
 - Listed in CONTRIBUTORS.md
@@ -228,12 +228,12 @@ Contributors will be:
 - Given credit in documentation
 - Invited to maintainer discussions (for significant contributions
 
-## 📞 Contact
+## Contact
 
 - **Issues**: [GitHub Issues](https://github.com/sholajegede/mcp-starter-kit/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/sholajegede/mcp-starter-kit/discussions)
-- **Email**: [Your contact email]
+- **Email**: [jegedeshola@gmail.com](mailto:jegedeshola@gmail.com)
 
 ---
 
-Thank you for contributing to MCP Starter Kit! 🚀
+Thank you for contributing to MCP Starter Kit!
