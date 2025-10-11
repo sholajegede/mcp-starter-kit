@@ -1,0 +1,42 @@
+# Compiled output (keep dist/ for npm package)
+# dist/ - commented out because dist/ is needed for npm package
+*.js.map
+*.d.ts.map
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test output
+test-output/
