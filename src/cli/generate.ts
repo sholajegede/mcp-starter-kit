@@ -788,6 +788,28 @@ Deno.serve({ port: Number(process.env.PORT ?? 3000), hostname: process.env.HOST 
   }
 }
 
+function billingSection(o: ProjectOptions): string {
+  const intro =
+    'Each tool has a `cost` in units (default 1). `search_notes`, `delete_note` and `whoami` cost 0, `create_note` costs 1' +
+    (o.llm !== 'none' ? ' and `summarize_note` costs 5' : '') +
+    '. Change them in `src/tools`.';
+  const paid = o.llm !== 'none' ? 'features keyed `create_note` and `summarize_note`' : 'a feature keyed `create_note`';
+  const body: Record<ProjectOptions['billing'], string> = {
+    none: '',
+    quota:
+      'Limits live in `src/server.ts`: 100 units a month on `free`, unlimited on `pro`. The plan comes from a `plan` claim on the access token; users without one are on `free`. Add the claim in your provider, or pass `planOf` to look the plan up in your database.',
+    stripe:
+      'Calls are limited by plan as in the quota setup (100 units a month on `free`, unlimited on `pro`, plan from a `plan` claim), and every successful call is reported to the Stripe meter named in `STRIPE_METER_EVENT`. The Stripe customer id comes from a `stripe_customer_id` claim on the access token; change `customerId` in `src/server.ts` to read it from your database instead.',
+    kinde:
+      'Each tool is checked against a feature with the same key as the tool name, so add ' + paid + ' to your Kinde plans. A plan without the feature is refused, and `entitlement_limit_max` is enforced per month. Pass `featureKey` to `kindeBilling` in `src/server.ts` to map tools to other keys, and `meter` to report usage to Kinde.',
+    autumn:
+      'Each tool is checked against an Autumn feature with the same id as the tool name, so add ' + paid + ' to your plans. The customer id is the org id when the user has one, otherwise the user id.',
+    polar:
+      'Every successful call is sent to Polar as a `POLAR_EVENT_NAME` event with the units in `metadata.units`, so create a meter that sums that field. The customer is matched by external id: the org id when the user has one, otherwise the user id. Pass `gateOnMeterId` to `polar` in `src/server.ts` to block calls once a customer has no balance left.',
+  };
+  return o.billing === 'none' ? '' : `## Billing\n\n${intro} ${body[o.billing]}\n\n`;
+}
+
 function readme(o: ProjectOptions, scripts: Record<string, string>): string {
   const run = o.runtime === 'cloudflare' ? 'npm run dev' : 'npm run dev';
   const localUrl = o.runtime === 'cloudflare' ? 'http://localhost:8787/mcp' : 'http://localhost:3000/mcp';
@@ -833,7 +855,7 @@ npx @modelcontextprotocol/inspector
 
 ${authNote}
 
-## Connect a client
+${billingSection(o)}## Connect a client
 
 Claude Code:
 
