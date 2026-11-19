@@ -1,69 +1,99 @@
 {
   "name": "mcp-starter-kit",
-  "version": "1.4.9",
-  "description": "Universal MCP starter kit with authentication, database, and billing",
-  "main": "dist/universal-server.js",
-  "bin": {
-    "mcp": "./bin/mcp-starter",
-    "mcp-starter": "./bin/mcp-starter",
-    "mcp-starter-kit": "./bin/mcp-starter"
-  },
+  "version": "2.0.0-alpha.0",
+  "description": "Production foundation for MCP servers: any auth provider, any database, any billing system, any runtime.",
   "type": "module",
-  "scripts": {
-    "build": "tsc",
-    "start": "node dist/universal-server.js",
-    "dev": "tsx src/universal-server.ts",
-    "universal": "tsx src/universal-server.ts",
-    "universal:blog": "APP_TYPE=blog tsx src/universal-server.ts",
-    "universal:ecommerce": "APP_TYPE=ecommerce tsx src/universal-server.ts",
-    "universal:crm": "APP_TYPE=crm tsx src/universal-server.ts",
-    "universal:todo": "APP_TYPE=todo tsx src/universal-server.ts",
-    "auth-server": "tsx src/kinde-auth-server.ts",
-    "setup-db": "tsx src/setup-db.ts",
-    "prepublishOnly": "npm run build",
-    "postinstall": "echo '🚀 MCP Starter Kit installed! Run: npx mcp-starter-kit'"
+  "license": "MIT",
+  "author": "Shola Jegede",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sholajegede/mcp-starter-kit.git"
   },
-  "dependencies": {
-    "@kinde-oss/kinde-typescript-sdk": "^2.13.0",
-    "@modelcontextprotocol/sdk": "^1.19.0",
-    "@neondatabase/serverless": "^0.9.0",
-    "@types/express": "^5.0.3",
-    "@types/express-session": "^1.18.2",
-    "commander": "^11.0.0",
-    "dotenv": "^16.3.1",
-    "express": "^4.21.2",
-    "express-session": "^1.18.2",
-    "jsonwebtoken": "^9.0.2",
-    "jwks-client": "^2.0.5"
-  },
-  "devDependencies": {
-    "@types/jsonwebtoken": "^9.0.5",
-    "@types/node": "^20.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.0.0"
-  },
+  "homepage": "https://github.com/sholajegede/mcp-starter-kit#readme",
+  "bugs": "https://github.com/sholajegede/mcp-starter-kit/issues",
   "keywords": [
     "mcp",
     "model-context-protocol",
-    "starter-kit",
-    "authentication",
-    "database",
+    "mcp-server",
+    "oauth",
+    "authorization",
     "billing",
-    "cursor",
-    "ai"
+    "entitlements",
+    "rate-limiting",
+    "llm-router",
+    "cloudflare-workers",
+    "vercel",
+    "ai-agents"
   ],
-  "author": "Shola Jegede",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/sholajegede/mcp-starter-kit.git"
+  "engines": {
+    "node": ">=20"
   },
+  "sideEffects": false,
   "files": [
-    "bin/",
-    "dist/",
-    "src/",
+    "dist",
     "README.md",
-    "INSTALLATION.md",
-    "package.json"
-  ]
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./auth": {
+      "types": "./dist/auth/index.d.ts",
+      "import": "./dist/auth/index.js"
+    },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./dist/store/index.js"
+    },
+    "./billing": {
+      "types": "./dist/billing/index.d.ts",
+      "import": "./dist/billing/index.js"
+    },
+    "./llm": {
+      "types": "./dist/llm/index.d.ts",
+      "import": "./dist/llm/index.js"
+    },
+    "./node": {
+      "types": "./dist/runtime/node.d.ts",
+      "import": "./dist/runtime/node.js"
+    },
+    "./stdio": {
+      "types": "./dist/runtime/stdio.d.ts",
+      "import": "./dist/runtime/stdio.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "jose": "^6.2.18"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/node": "^2.1.0",
+    "zod": "^4.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/node": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@modelcontextprotocol/node": "^2.1.2",
+    "@types/node": "^22.20.5",
+    "tsup": "^9.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.1",
+    "zod": "^4.6.7"
+  }
 }
