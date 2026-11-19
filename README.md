@@ -46,7 +46,37 @@ MCP client (Claude, ChatGPT, Cursor, VS Code, an agent)
  Mongo               OpenAI, Anthropic
 ```
 
-## Install
+## Start a project
+
+```bash
+npx mcp-starter-kit my-server
+```
+
+The generator asks where the server runs, who signs users in, which database you use, how you limit or charge for usage, and whether tools call a model. It then writes a working project for that combination: the server, a notes toolset to replace with your own, database code for your store, entry points for your runtime (with a Dockerfile, `wrangler.jsonc` or `vercel.json` where they apply), an `.env.example` that lists only the variables your choices need, a README and tests.
+
+Skip the questions by passing everything as flags:
+
+```bash
+npx mcp-starter-kit my-server --runtime cloudflare --auth workos --store upstash --billing stripe --llm openrouter -y
+```
+
+| Flag | Choices |
+| --- | --- |
+| `--runtime` | `node`, `cloudflare`, `vercel`, `bun`, `deno` |
+| `--auth` | `kinde`, `auth0`, `clerk`, `workos`, `okta`, `entra`, `keycloak`, `cognito`, `supabase`, `firebase`, `better-auth`, `oidc`, `api-keys`, `none` |
+| `--store` | `postgres`, `sqlite`, `mysql`, `mongo`, `redis`, `upstash`, `memory` |
+| `--billing` | `none`, `quota`, `stripe`, `kinde` |
+| `--llm` | `none`, `openrouter`, `vercel`, `cloudflare`, `portkey`, `litellm`, `openai`, `anthropic`, `ollama` |
+
+Combinations that cannot work are refused with the reason, for example raw Redis on Cloudflare Workers, which cannot open TCP connections.
+
+Inside a generated project, add a tool with:
+
+```bash
+npx mcp-starter-kit add tool create_invoice
+```
+
+## Install into an existing project
 
 ```bash
 npm install mcp-starter-kit zod
@@ -191,6 +221,7 @@ Counters are atomic in every adapter, so limits hold when you run more than one 
 | --- | --- |
 | `quota({ plans, planOf, by, upgradeUrl })` | Units per plan per day, month, custom window or lifetime. Per-feature limits. Pool usage per user or per org. The plan comes from a `plan` claim, your database, or a lookup you supply |
 | `stripeMeter({ secretKey, eventName, customerId })` | Reports successful calls to a Stripe Billing Meter for usage-based pricing. The request id is the event identifier, so retries are not double-counted |
+| `kindeBilling({ domain, meter })` | Kinde Billing. Checks the caller's plan through the Kinde Account API with their own token, enforces `entitlement_limit_max`, and with `meter` reports usage to the customer's agreement through the Management API |
 | `allOf(a, b)` | Combine them, e.g. gate with `quota` and bill with `stripeMeter` |
 
 When a caller is over their limit the model receives the reason and your upgrade link, so it can tell the user what to do. Write your own adapter by implementing `reserve` and `settle`.
@@ -227,11 +258,11 @@ Logs are JSON lines on stderr, never stdout, so they cannot corrupt the stdio st
 npm test
 ```
 
-The suite runs the server end to end with the official MCP client over HTTP, Node and stdio, in both protocol eras. Store adapters run against real SQLite and Postgres (through PGlite).
+The suite runs the server end to end with the official MCP client over HTTP, Node and stdio, in both protocol eras. Store adapters run against real SQLite and Postgres (through PGlite). The generator is checked across every valid combination of choices, including that each project's `.env.example` lists every variable its code reads.
 
 ## Migrating from 1.x
 
-1.x scaffolded a project with a Kinde login page, a copy-your-token step and generated CRUD tools. 2.x replaces all of it:
+1.x scaffolded a project with a Kinde login page, a copy-your-token step and generated CRUD tools. 2.x replaces all of it, and `npx mcp-starter-kit` now generates a v2 project:
 
 - The login page and `save_token` tool are gone. MCP clients now run OAuth themselves using the metadata the server publishes. Use the `kinde` adapter with your domain.
 - The Neon-specific database layer is gone. Use your own client through `services`, and `sqlStore` with your Neon pool for quotas.
