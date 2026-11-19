@@ -5,7 +5,7 @@ const shared = {
   target: 'es2022',
   sourcemap: true,
   treeshake: true,
-  external: ['@modelcontextprotocol/server', '@modelcontextprotocol/node', 'zod', 'jose', '@clack/prompts'],
+  external: ['@opentelemetry/api', '@modelcontextprotocol/server', '@modelcontextprotocol/node', 'zod', 'jose', '@clack/prompts'],
 };
 
 export default defineConfig([
@@ -19,6 +19,7 @@ export default defineConfig([
       'llm/index': 'src/llm/index.ts',
       'runtime/node': 'src/runtime/node.ts',
       'runtime/stdio': 'src/runtime/stdio.ts',
+      'otel/index': 'src/otel/index.ts',
     },
     dts: true,
     splitting: true,
