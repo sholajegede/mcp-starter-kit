@@ -34,7 +34,7 @@ MCP client (Claude, ChatGPT, Cursor, VS Code, an agent)
 │ scope check         per tool; OAuth clients get a step-up challenge      │
 │ confirmation        destructive tools ask the user first                 │
 │ rate limit          per user, per org or global, in the shared store     │
-│ entitlements        quota per plan, Stripe meters, or your own adapter   │
+│ entitlements        quotas, Stripe, Kinde, Autumn, Polar, or your own    │
 │ your handler        typed input, ctx.services, ctx.llm, ctx.progress     │
 │ result              structured output, safe errors, usage settled        │
 └──────────────────────────────────────────────────────────────────────────┘
@@ -65,7 +65,7 @@ npx mcp-starter-kit my-server --runtime cloudflare --auth workos --store upstash
 | `--runtime` | `node`, `cloudflare`, `vercel`, `bun`, `deno` |
 | `--auth` | `kinde`, `auth0`, `clerk`, `workos`, `okta`, `entra`, `keycloak`, `cognito`, `supabase`, `firebase`, `better-auth`, `oidc`, `api-keys`, `none` |
 | `--store` | `postgres`, `sqlite`, `mysql`, `mongo`, `redis`, `upstash`, `memory` |
-| `--billing` | `none`, `quota`, `stripe`, `kinde` |
+| `--billing` | `none`, `quota`, `stripe`, `kinde`, `autumn`, `polar` |
 | `--llm` | `none`, `openrouter`, `vercel`, `cloudflare`, `portkey`, `litellm`, `openai`, `anthropic`, `ollama` |
 
 Combinations that cannot work are refused with the reason, for example raw Redis on Cloudflare Workers, which cannot open TCP connections.
@@ -84,7 +84,7 @@ npm install mcp-starter-kit zod
 npm install @modelcontextprotocol/node
 ```
 
-Node 20 or later. Bun, Deno and Workers work through the `fetch` handler.
+Node 22 or later. Bun, Deno and Workers work through the `fetch` handler.
 
 ## A server in one file
 
@@ -192,6 +192,35 @@ The handler context:
 
 Use `createTool<Services>()` instead of `defineTool` to get `ctx.services` typed.
 
+## Resources and prompts
+
+Resources give the client read-only context it can load by URI. Prompts are templates users pick from the client's menu. Both get the same context, scopes and error handling as tools.
+
+```ts
+import { defineResourceTemplate, definePrompt } from 'mcp-starter-kit';
+
+defineServer({
+  resources: [
+    defineResourceTemplate({
+      name: 'invoice',
+      uriTemplate: 'invoices://{id}',
+      mimeType: 'application/json',
+      scopes: ['invoices:read'],
+      read: async ({ id }, ctx) => JSON.stringify(await ctx.services.invoices.get(id)),
+    }),
+  ],
+  prompts: [
+    definePrompt({
+      name: 'chase_overdue',
+      args: z.object({ customerId: z.string() }),
+      render: ({ customerId }) => `List overdue invoices for ${customerId} and draft a polite reminder.`,
+    }),
+  ],
+});
+```
+
+`defineResource` takes a fixed `uri`. Templates can add `list` so clients can browse what exists.
+
 ## Your database
 
 The kit does not wrap your database. Create your client the way you already do (Drizzle, Prisma, Kysely, Mongoose, the Supabase or Convex client) and hand it to tools through `services`:
@@ -222,6 +251,8 @@ Counters are atomic in every adapter, so limits hold when you run more than one 
 | `quota({ plans, planOf, by, upgradeUrl })` | Units per plan per day, month, custom window or lifetime. Per-feature limits. Pool usage per user or per org. The plan comes from a `plan` claim, your database, or a lookup you supply |
 | `stripeMeter({ secretKey, eventName, customerId })` | Reports successful calls to a Stripe Billing Meter for usage-based pricing. The request id is the event identifier, so retries are not double-counted |
 | `kindeBilling({ domain, meter })` | Kinde Billing. Checks the caller's plan through the Kinde Account API with their own token, enforces `entitlement_limit_max`, and with `meter` reports usage to the customer's agreement through the Management API |
+| `autumn({ secretKey })` | Autumn. Checks the customer's balance for the feature before the call and tracks the units after it |
+| `polar({ accessToken, eventName, gateOnMeterId })` | Polar usage billing. Ingests an event per successful call. With `gateOnMeterId`, blocks calls when the customer's meter balance is too low |
 | `allOf(a, b)` | Combine them, e.g. gate with `quota` and bill with `stripeMeter` |
 
 When a caller is over their limit the model receives the reason and your upgrade link, so it can tell the user what to do. Write your own adapter by implementing `reserve` and `settle`.
@@ -250,7 +281,11 @@ The HTTP handler follows the stateless `2026-07-28` model: no sessions and no st
 
 ## Observability
 
-Logs are JSON lines on stderr, never stdout, so they cannot corrupt the stdio stream. `hooks.onToolStart`, `onToolEnd` and `onToolError` give you one place to send traces, metrics or audit events wherever you keep them.
+Logs are JSON lines on stderr, never stdout, so they cannot corrupt the stdio stream.
+
+For traces and metrics, pass `telemetry: openTelemetry()` from `mcp-starter-kit/otel`. Every tool call, resource read and prompt render becomes a span named with the MCP semantic conventions (`tools/call create_invoice`), with the outcome, units charged and tenant as attributes, plus an `mcp.server.operation.duration` histogram. When the client sends a `traceparent` in `_meta`, the span joins the client's trace, so one trace covers the agent, the tool and anything the tool calls. Register whichever OpenTelemetry SDK and exporter you already use; `@opentelemetry/api` is the only dependency.
+
+`hooks.onToolStart`, `onToolEnd` and `onToolError` give you one place to send audit events wherever you keep them.
 
 ## Testing
 
@@ -258,7 +293,7 @@ Logs are JSON lines on stderr, never stdout, so they cannot corrupt the stdio st
 npm test
 ```
 
-The suite runs the server end to end with the official MCP client over HTTP, Node and stdio, in both protocol eras. Store adapters run against real SQLite and Postgres (through PGlite). The generator is checked across every valid combination of choices, including that each project's `.env.example` lists every variable its code reads.
+The suite runs the server end to end with the official MCP client over HTTP, Node and stdio, in both protocol eras. Store adapters run against real SQLite and Postgres (through PGlite). The generator is checked across every valid combination of choices, including that each project's `.env.example` lists every variable its code reads. CI also generates seven real projects that between them cover every runtime, database and billing option, installs them against the packed kit, and runs their typecheck and tests.
 
 ## Migrating from 1.x
 
