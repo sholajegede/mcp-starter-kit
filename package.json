@@ -1,6 +1,6 @@
 {
   "name": "mcp-starter-kit",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0",
   "description": "Production foundation for MCP servers: any auth provider, any database, any billing system, any runtime.",
   "type": "module",
   "license": "MIT",
@@ -36,6 +36,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "exports": {
