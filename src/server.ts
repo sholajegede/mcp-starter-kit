@@ -22,6 +22,8 @@ import { createLogger, type Logger, type LogLevel } from './logger.js';
 import { memoryStore } from './store/memory.js';
 import type { Store } from './store/types.js';
 import { registerTool, type AnyTool } from './tool.js';
+import { registerPrompt, registerResource, type AnyPrompt, type AnyResource } from './primitives.js';
+import { noTelemetry, type Telemetry } from './telemetry.js';
 import type { Awaitable, Principal, ServerHooks, TokenVerifier } from './types.js';
 
 export interface HttpOptions {
@@ -58,6 +60,10 @@ export interface ServerConfig<Services = unknown> {
   websiteUrl?: string;
   icons?: Icon[];
   tools: AnyTool[];
+  /** Read-only context the client can load: docs, configuration, records addressed by URI. */
+  resources?: AnyResource[];
+  /** Reusable prompt templates users pick from the client's menu. */
+  prompts?: AnyPrompt[];
   /** Verifies bearer tokens on HTTP and the startup token on stdio. */
   auth?: TokenVerifier;
   /** Serve HTTP without authentication. Only for local development or public read-only servers. */
@@ -77,6 +83,8 @@ export interface ServerConfig<Services = unknown> {
   /** Register resources, prompts or anything else directly on the SDK server. */
   setup?: (server: McpServer, context: ServerSetupContext) => void;
   hooks?: ServerHooks;
+  /** Tracing and metrics. Use `openTelemetry()` from `mcp-starter-kit/otel`. */
+  telemetry?: Telemetry;
   logLevel?: LogLevel;
   logger?: Logger;
   http?: HttpOptions;
@@ -130,6 +138,12 @@ function validateConfig(config: ServerConfig<any>): void {
     if (!tool.description?.trim()) throw new ConfigError(`Tool "${tool.name}" needs a description`);
     names.add(tool.name);
   }
+  const seen = new Set<string>();
+  for (const item of [...(config.resources ?? []), ...(config.prompts ?? [])]) {
+    const key = `${'render' in item ? 'prompt' : 'resource'}:${item.name}`;
+    if (seen.has(key)) throw new ConfigError(`Duplicate ${key.replace(':', ' name "')}"`);
+    seen.add(key);
+  }
   if (config.publicUrl) {
     const url = new URL(config.publicUrl);
     const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
@@ -145,6 +159,7 @@ export function defineServer<Services = unknown>(config: ServerConfig<Services>)
   const entitlements = config.entitlements ?? unmetered();
   const llm = config.llm ?? noLlm();
   const hooks = config.hooks ?? {};
+  const telemetry = config.telemetry ?? noTelemetry;
   const http = config.http ?? {};
   const mcpPath = http.path ?? (config.publicUrl ? new URL(config.publicUrl).pathname : '/mcp');
   const resource = config.publicUrl ? new URL(config.publicUrl) : undefined;
@@ -170,11 +185,14 @@ export function defineServer<Services = unknown>(config: ServerConfig<Services>)
       llm,
       log,
       hooks,
+      telemetry,
       http: context.requestInfo !== undefined,
       ...(token ? { token } : {}),
       services: () => (services ??= Promise.resolve(config.services?.(principal, { store, log }))),
     };
     for (const tool of config.tools) registerTool(server, tool, runtime);
+    for (const resource of config.resources ?? []) registerResource(server, resource, runtime);
+    for (const prompt of config.prompts ?? []) registerPrompt(server, prompt, runtime);
     config.setup?.(server, { principal, store, log });
     return server;
   };
@@ -219,7 +237,9 @@ export function defineServer<Services = unknown>(config: ServerConfig<Services>)
   const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
 
-  const toolScopes = [...new Set(config.tools.flatMap((t) => t.scopes ?? []))];
+  const toolScopes = [
+    ...new Set([...config.tools, ...(config.resources ?? []), ...(config.prompts ?? [])].flatMap((t) => t.scopes ?? [])),
+  ];
   const scopesSupported = config.scopesSupported ?? config.auth?.scopesSupported ?? (toolScopes.length ? toolScopes : undefined);
   const protectedResourceMetadata = () => ({
     resource: resource!.href,
