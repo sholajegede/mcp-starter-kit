@@ -29,7 +29,8 @@
         "./src/*/index.ts",
         "./src/runtime/*.ts"
       ]
-    }
+    },
+    "noUnusedLocals": true
   },
   "include": [
     "src",

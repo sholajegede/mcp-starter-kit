@@ -14,11 +14,8 @@ import {
 } from '@modelcontextprotocol/server';
 import { ToolError } from './errors.js';
 import { checkRateLimit } from './rate-limit.js';
-import type { Entitlements } from './billing/types.js';
-import type { LlmClient } from './llm/types.js';
-import type { Logger } from './logger.js';
-import type { Store } from './store/types.js';
-import type { Awaitable, Principal, RateLimitRule, ServerHooks, ToolContext } from './types.js';
+import { createContext, missingScopes, oauthPrincipal, type Runtime } from './context.js';
+import type { Awaitable, RateLimitRule, ToolContext } from './types.js';
 
 type Infer<S> = S extends StandardSchemaWithJSON ? StandardSchemaWithJSON.InferOutput<S> : Record<string, never>;
 
@@ -73,18 +70,7 @@ export function createTool<Services>() {
   ): ToolDefinition<I, O, Services> => definition;
 }
 
-export interface ToolRuntime {
-  era: 'legacy' | 'modern';
-  principal: Principal;
-  store: Store;
-  entitlements: Entitlements;
-  llm: LlmClient;
-  log: Logger;
-  hooks: ServerHooks;
-  services: () => Promise<unknown>;
-  http: boolean;
-  token?: string;
-}
+export type ToolRuntime = Runtime;
 
 const confirmSchema = {
   type: 'object' as const,
@@ -96,10 +82,7 @@ function errorResult(message: string, extra: Record<string, unknown> = {}): Call
   return { content: [{ type: 'text', text: message }], isError: true, ...(Object.keys(extra).length ? { _meta: { 'mcp-starter-kit/error': extra } } : {}) };
 }
 
-export function hasScopes(principal: Principal, scopes: string[] | undefined): string[] {
-  if (!scopes?.length || principal.scopes.includes('*')) return [];
-  return scopes.filter((s) => !principal.scopes.includes(s));
-}
+export const hasScopes = missingScopes;
 
 function toResult(value: unknown, hasOutput: boolean): CallToolResult | InputRequiredResult {
   if (value !== null && typeof value === 'object' && isInputRequiredResult(value)) return value;
@@ -130,7 +113,7 @@ async function confirmed(def: AnyTool, input: unknown, ctx: ServerContext, rt: T
   }
 }
 
-export function registerTool(server: McpServer, def: AnyTool, rt: ToolRuntime): void {
+export function registerTool(server: McpServer, def: AnyTool, rt: Runtime): void {
   const hasOutput = def.output !== undefined;
   const scopes = def.scopes?.length ? (def.scopes as [string, ...string[]]) : undefined;
 
@@ -140,99 +123,94 @@ export function registerTool(server: McpServer, def: AnyTool, rt: ToolRuntime): 
     const principal = rt.principal;
     const log = rt.log.child({ tool: def.name, requestId, principal: principal.id });
     const event = { tool: def.name, principal, requestId };
+    const meta = ctx.mcpReq._meta as Record<string, unknown> | undefined;
 
-    const missing = hasScopes(principal, def.scopes);
-    if (missing.length) return errorResult(`Missing permission: ${missing.join(', ')}.`, { code: 'insufficient_scope', scopes: missing });
+    return rt.telemetry.run({ kind: 'tool', name: def.name, principal, requestId, ...(meta ? { meta } : {}) }, async (span) => {
+      const finish = (result: CallToolResult | InputRequiredResult, outcome: string) => {
+        span.setAttributes({ 'mcp_starter_kit.outcome': outcome });
+        if ((result as CallToolResult).isError) span.fail(undefined, outcome);
+        return result;
+      };
 
-    if (def.confirm) {
-      const gate = await confirmed(def, input, ctx, rt);
-      if (gate !== true) return gate;
-    }
+      const missing = missingScopes(principal, def.scopes);
+      if (missing.length) return finish(errorResult(`Missing permission: ${missing.join(', ')}.`, { code: 'insufficient_scope', scopes: missing }), 'insufficient_scope');
 
-    if (def.rateLimit) {
-      const limit = await checkRateLimit(rt.store, def.name, def.rateLimit, principal);
-      if (!limit.allowed) {
-        return errorResult(`Rate limit reached for ${def.name}. Try again in ${limit.retryAfterSec}s.`, {
-          code: 'rate_limited',
-          retryAfterSec: limit.retryAfterSec,
+      if (def.confirm) {
+        const gate = await confirmed(def, input, ctx, rt);
+        if (gate !== true) return finish(gate, isInputRequiredResult(gate) ? 'input_required' : 'not_confirmed');
+      }
+
+      if (def.rateLimit) {
+        const limit = await checkRateLimit(rt.store, def.name, def.rateLimit, principal);
+        if (!limit.allowed) {
+          return finish(
+            errorResult(`Rate limit reached for ${def.name}. Try again in ${limit.retryAfterSec}s.`, { code: 'rate_limited', retryAfterSec: limit.retryAfterSec }),
+            'rate_limited',
+          );
+        }
+      }
+
+      const units = typeof def.cost === 'function' ? def.cost(input) : (def.cost ?? 1);
+      span.setAttributes({ 'mcp_starter_kit.units': units });
+      const token = ctx.http?.authInfo?.token ?? rt.token;
+      const usage = { principal, tool: def.name, units, feature: def.feature ?? def.name, requestId, ...(token ? { token } : {}) };
+      const billing = { store: rt.store, log };
+      if (units > 0) {
+        const decision = await rt.entitlements.reserve(usage, billing);
+        if (!decision.allowed) {
+          const upgrade = decision.upgradeUrl ? ` Upgrade: ${decision.upgradeUrl}` : '';
+          return finish(
+            errorResult(`${decision.reason}${upgrade}`, {
+              code: 'entitlement_denied',
+              ...(decision.upgradeUrl ? { upgradeUrl: decision.upgradeUrl } : {}),
+              ...(decision.retryAfterSec ? { retryAfterSec: decision.retryAfterSec } : {}),
+            }),
+            'entitlement_denied',
+          );
+        }
+      }
+
+      const started = Date.now();
+      await rt.hooks.onToolStart?.({ ...event, input });
+      const timeout = AbortSignal.timeout(def.timeoutMs ?? 60_000);
+      const signal = AbortSignal.any([ctx.mcpReq.signal, timeout]);
+      const toolCtx = createContext(rt, ctx, def.name, requestId, signal);
+
+      let ok = false;
+      try {
+        toolCtx.services = await rt.services();
+        let onAbort: (() => void) | undefined;
+        const aborted = new Promise<never>((_, reject) => {
+          onAbort = () => reject(signal.reason);
+          if (signal.aborted) onAbort();
+          else signal.addEventListener('abort', onAbort, { once: true });
         });
-      }
-    }
-
-    const units = typeof def.cost === 'function' ? def.cost(input) : (def.cost ?? 1);
-    const token = ctx.http?.authInfo?.token ?? rt.token;
-    const usage = { principal, tool: def.name, units, feature: def.feature ?? def.name, requestId, ...(token ? { token } : {}) };
-    const billing = { store: rt.store, log };
-    if (units > 0) {
-      const decision = await rt.entitlements.reserve(usage, billing);
-      if (!decision.allowed) {
-        const upgrade = decision.upgradeUrl ? ` Upgrade: ${decision.upgradeUrl}` : '';
-        return errorResult(`${decision.reason}${upgrade}`, {
-          code: 'entitlement_denied',
-          ...(decision.upgradeUrl ? { upgradeUrl: decision.upgradeUrl } : {}),
-          ...(decision.retryAfterSec ? { retryAfterSec: decision.retryAfterSec } : {}),
+        aborted.catch(() => {});
+        const value = await Promise.race([Promise.resolve(def.handler(input, toolCtx)), aborted]).finally(() => {
+          if (onAbort) signal.removeEventListener('abort', onAbort);
         });
+        const result = toResult(value, hasOutput);
+        ok = !isInputRequiredResult(result) && !(result as CallToolResult).isError;
+        return finish(result, ok ? 'ok' : isInputRequiredResult(result) ? 'input_required' : 'tool_error');
+      } catch (error) {
+        await rt.hooks.onToolError?.({ ...event, error });
+        if (error instanceof ToolError) {
+          log.info('tool returned an error', { code: error.code, message: error.message });
+          return finish(errorResult(error.message, { code: error.code, ...error.details }), 'tool_error');
+        }
+        if (timeout.aborted) {
+          log.warn('tool timed out', { timeoutMs: def.timeoutMs ?? 60_000 });
+          return finish(errorResult(`${def.name} timed out.`, { code: 'timeout' }), 'timeout');
+        }
+        if (ctx.mcpReq.signal.aborted) return finish(errorResult('Cancelled.', { code: 'cancelled' }), 'cancelled');
+        log.error('tool failed', { error });
+        span.fail(error);
+        return errorResult(`${def.name} failed unexpectedly. Reference: ${requestId}`, { code: 'internal_error', requestId });
+      } finally {
+        if (units > 0) await rt.entitlements.settle({ ...usage, ok }, billing).catch((error) => log.error('settling usage failed', { error }));
+        await rt.hooks.onToolEnd?.({ ...event, durationMs: Date.now() - started, ok, units });
       }
-    }
-
-    const started = Date.now();
-    await rt.hooks.onToolStart?.({ ...event, input });
-    const timeout = AbortSignal.timeout(def.timeoutMs ?? 60_000);
-    const signal = AbortSignal.any([ctx.mcpReq.signal, timeout]);
-    const progressToken = ctx.mcpReq._meta?.progressToken;
-
-    const toolCtx: ToolContext<unknown> = {
-      principal,
-      ...(ctx.http?.authInfo ? { authInfo: ctx.http.authInfo } : {}),
-      services: undefined,
-      store: rt.store,
-      llm: rt.llm,
-      log,
-      signal,
-      requestId,
-      toolName: def.name,
-      progress: async (progress, total, message) => {
-        if (progressToken === undefined) return;
-        await ctx.mcpReq.notify({
-          method: 'notifications/progress',
-          params: { progressToken, progress, ...(total !== undefined ? { total } : {}), ...(message ? { message } : {}) },
-        });
-      },
-    };
-
-    let ok = false;
-    try {
-      toolCtx.services = await rt.services();
-      let onAbort: (() => void) | undefined;
-      const aborted = new Promise<never>((_, reject) => {
-        onAbort = () => reject(signal.reason);
-        if (signal.aborted) onAbort();
-        else signal.addEventListener('abort', onAbort, { once: true });
-      });
-      aborted.catch(() => {});
-      const value = await Promise.race([Promise.resolve(def.handler(input, toolCtx)), aborted]).finally(() => {
-        if (onAbort) signal.removeEventListener('abort', onAbort);
-      });
-      const result = toResult(value, hasOutput);
-      ok = !isInputRequiredResult(result) && !(result as CallToolResult).isError;
-      return result;
-    } catch (error) {
-      await rt.hooks.onToolError?.({ ...event, error });
-      if (error instanceof ToolError) {
-        log.info('tool returned an error', { code: error.code, message: error.message });
-        return errorResult(error.message, { code: error.code, ...error.details });
-      }
-      if (timeout.aborted) {
-        log.warn('tool timed out', { timeoutMs: def.timeoutMs ?? 60_000 });
-        return errorResult(`${def.name} timed out.`, { code: 'timeout' });
-      }
-      if (ctx.mcpReq.signal.aborted) return errorResult('Cancelled.', { code: 'cancelled' });
-      log.error('tool failed', { error });
-      return errorResult(`${def.name} failed unexpectedly. Reference: ${requestId}`, { code: 'internal_error', requestId });
-    } finally {
-      if (units > 0) await rt.entitlements.settle({ ...usage, ok }, billing).catch((error) => log.error('settling usage failed', { error }));
-      await rt.hooks.onToolEnd?.({ ...event, durationMs: Date.now() - started, ok, units });
-    }
+    });
   };
 
   const config = {
@@ -243,7 +221,7 @@ export function registerTool(server: McpServer, def: AnyTool, rt: ToolRuntime): 
     ...(def.annotations ? { annotations: def.annotations } : {}),
     ...(def.icons ? { icons: def.icons } : {}),
     ...(def._meta ? { _meta: def._meta } : {}),
-    ...(rt.http && scopes && (rt.principal.kind === 'user' || rt.principal.kind === 'client') ? { scopeChallenge: requireScopes(...scopes) } : {}),
+    ...(rt.http && scopes && oauthPrincipal(rt.principal) ? { scopeChallenge: requireScopes(...scopes) } : {}),
   };
 
   if (def.input) server.registerTool(def.name, config as never, ((args: unknown, ctx: ServerContext) => run(args, ctx)) as never);

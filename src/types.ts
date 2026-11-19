@@ -1,7 +1,6 @@
 import type { AuthInfo, ToolAnnotations } from '@modelcontextprotocol/server';
 import type { Logger } from './logger.js';
 import type { Store } from './store/types.js';
-import type { Entitlements } from './billing/types.js';
 import type { LlmClient } from './llm/types.js';
 
 export type Awaitable<T> = T | Promise<T>;
