@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  generated:
+    name: Generated project (${{ matrix.runtime }}, ${{ matrix.auth }}, ${{ matrix.store }}, ${{ matrix.billing }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runtime: node, auth: kinde, store: postgres, billing: kinde, llm: openrouter }
+          - { runtime: cloudflare, auth: workos, store: upstash, billing: stripe, llm: vercel }
+          - { runtime: vercel, auth: auth0, store: sqlite, billing: autumn, llm: anthropic }
+          - { runtime: bun, auth: api-keys, store: mysql, billing: quota, llm: none }
+          - { runtime: deno, auth: supabase, store: mongo, billing: polar, llm: ollama }
+          - { runtime: node, auth: none, store: memory, billing: none, llm: none }
+          - { runtime: node, auth: entra, store: redis, billing: quota, llm: litellm }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack the kit
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+      - name: Generate the project
+        working-directory: ${{ runner.temp }}
+        run: |
+          node "$GITHUB_WORKSPACE/dist/cli/index.js" app \
+            --runtime ${{ matrix.runtime }} --auth ${{ matrix.auth }} --store ${{ matrix.store }} \
+            --billing ${{ matrix.billing }} --llm ${{ matrix.llm }} -y --no-install
+      - name: Install with the packed kit
+        working-directory: ${{ runner.temp }}/app
+        run: |
+          npm pkg set "dependencies.mcp-starter-kit=file:$(ls "$RUNNER_TEMP"/mcp-starter-kit-*.tgz)"
+          npm install --no-audit --no-fund
+      - name: Typecheck
+        working-directory: ${{ runner.temp }}/app
+        run: npx tsc --noEmit
+      - name: Test
+        working-directory: ${{ runner.temp }}/app
+        run: npx vitest run

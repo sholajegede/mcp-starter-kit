@@ -1,20 +1,42 @@
 {
   "compilerOptions": {
     "target": "ES2022",
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
-    "moduleResolution": "node",
-    "outDir": "./dist",
-    "rootDir": "./src",
+    "moduleResolution": "Bundler",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
     "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true
+    "types": [
+      "node"
+    ],
+    "outDir": "dist",
+    "paths": {
+      "mcp-starter-kit": [
+        "./src/index.ts"
+      ],
+      "mcp-starter-kit/*": [
+        "./src/*/index.ts",
+        "./src/runtime/*.ts"
+      ]
+    },
+    "noUnusedLocals": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "include": [
+    "src",
+    "test",
+    "examples",
+    "tsup.config.ts",
+    "vitest.config.ts"
+  ]
 }
