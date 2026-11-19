@@ -26,7 +26,7 @@ The kit does those things once, with adapters, so the same server code works wit
 MCP client (Claude, ChatGPT, Cursor, VS Code, an agent)
    │  Authorization: Bearer <token>
    ▼
-┌──────────────────────────── mcp-starter-kit ────────────────────────────┐
+┌──────────────────────────── mcp-starter-kit ─────────────────────────────┐
 │ auth adapter        verify token, map claims to a Principal              │
 │                     (Kinde, Auth0, Clerk, WorkOS, Okta, Entra, Keycloak, │
 │                      Cognito, Supabase, Firebase, Better Auth, any OIDC, │
@@ -132,7 +132,7 @@ await serveStdio(server);
 export default { fetch: server.fetch };
 ```
 
-A fuller example with services, an LLM call and a confirmation step is in [`examples/notes`](examples/notes).
+A fuller example with services, an LLM call and a confirmation step is in [`examples/notes`](https://github.com/sholajegede/mcp-starter-kit/tree/main/examples/notes).
 
 ## Authentication
 
@@ -146,7 +146,7 @@ Every adapter returns the same `Principal`: `id`, `kind`, `email`, `name`, `orgI
 | `apiKeys` | Server-to-server callers and agents. Keys are matched by SHA-256 digest, so you never store the raw key |
 | `anyOf(a, b)` | Accept more than one, e.g. OAuth for people and API keys for automations |
 
-Set the verifier's `audience` to your `publicUrl`. A token minted for a different API is then refused, which is the check most hand-rolled MCP servers skip.
+Set the verifier's `audience` to your `publicUrl`, so a token minted for a different API is refused.
 
 Over HTTP the server publishes `/.well-known/oauth-protected-resource` and answers unauthenticated requests with a `WWW-Authenticate` header that points at it, so MCP clients can find your authorization server and run the OAuth flow on their own. Scopes listed on your tools are advertised there too.
 
@@ -171,7 +171,7 @@ defineTool({
 | Option | What it does |
 | --- | --- |
 | `input`, `output` | Zod (or any Standard Schema) schemas. Input is validated before your handler runs; output becomes `structuredContent` |
-| `scopes` | Required OAuth scopes. Missing ones return a scope challenge so the client can ask the user for more access |
+| `scopes` | Required scopes. OAuth clients over HTTP get a scope challenge so they can ask the user for more access; other callers get an error result |
 | `confirm` | Asks the user through elicitation before running. If the client cannot ask, the tool does not run |
 | `rateLimit` | `{ limit, window, by }` where `by` is `principal`, `org` or `global` |
 | `cost`, `feature` | Units charged to the caller's entitlements. Defaults to 1. A failed call is refunded |
@@ -249,7 +249,7 @@ Counters are atomic in every adapter, so limits hold when you run more than one 
 | Adapter | |
 | --- | --- |
 | `quota({ plans, planOf, by, upgradeUrl })` | Units per plan per day, month, custom window or lifetime. Per-feature limits. Pool usage per user or per org. The plan comes from a `plan` claim, your database, or a lookup you supply |
-| `stripeMeter({ secretKey, eventName, customerId })` | Reports successful calls to a Stripe Billing Meter for usage-based pricing. The request id is the event identifier, so retries are not double-counted |
+| `stripeMeter({ secretKey, eventName, customerId })` | Reports successful calls to a Stripe Billing Meter for usage-based pricing. Each event carries a unique identifier, so Stripe ignores a duplicate send of the same event |
 | `kindeBilling({ domain, meter })` | Kinde Billing. Checks the caller's plan through the Kinde Account API with their own token, enforces `entitlement_limit_max`, and with `meter` reports usage to the customer's agreement through the Management API |
 | `autumn({ secretKey })` | Autumn. Checks the customer's balance for the feature before the call and tracks the units after it |
 | `polar({ accessToken, eventName, gateOnMeterId })` | Polar usage billing. Ingests an event per successful call. With `gateOnMeterId`, blocks calls when the customer's meter balance is too low |
