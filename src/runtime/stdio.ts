@@ -46,7 +46,7 @@ export async function serveStdio(server: StarterServer, options: StdioOptions = 
     }
   }
 
-  const handle = sdkServeStdio((context) => server.build(context, principal), {
+  const handle = sdkServeStdio((context) => server.build(context, principal, auth ? token : undefined), {
     onerror: (error) => server.log.error('stdio transport', { error }),
   });
   server.log.info('serving on stdio', { principal: principal.id });

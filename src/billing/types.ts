@@ -10,6 +10,8 @@ export interface UsageRequest {
   /** Billing feature the tool belongs to. Defaults to the tool name. */
   feature: string;
   requestId: string;
+  /** The caller's raw access token, for adapters that query the identity provider on the user's behalf. */
+  token?: string;
 }
 
 export type EntitlementDecision =

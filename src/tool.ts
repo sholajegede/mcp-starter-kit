@@ -83,6 +83,7 @@ export interface ToolRuntime {
   hooks: ServerHooks;
   services: () => Promise<unknown>;
   http: boolean;
+  token?: string;
 }
 
 const confirmSchema = {
@@ -159,7 +160,8 @@ export function registerTool(server: McpServer, def: AnyTool, rt: ToolRuntime): 
     }
 
     const units = typeof def.cost === 'function' ? def.cost(input) : (def.cost ?? 1);
-    const usage = { principal, tool: def.name, units, feature: def.feature ?? def.name, requestId };
+    const token = ctx.http?.authInfo?.token ?? rt.token;
+    const usage = { principal, tool: def.name, units, feature: def.feature ?? def.name, requestId, ...(token ? { token } : {}) };
     const billing = { store: rt.store, log };
     if (units > 0) {
       const decision = await rt.entitlements.reserve(usage, billing);

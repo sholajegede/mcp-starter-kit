@@ -1,7 +1,6 @@
 import {
   createMcpHandler,
   getOAuthProtectedResourceMetadataUrl,
-  hostHeaderValidationResponse,
   McpServer,
   OAuthError,
   OAuthErrorCode,
@@ -12,6 +11,7 @@ import {
   type McpRequestContext,
   type OAuthTokenVerifier,
   type PerRequestResponseMode,
+  validateHostHeader,
 } from '@modelcontextprotocol/server';
 import { unmetered } from './billing/index.js';
 import type { Entitlements } from './billing/types.js';
@@ -91,7 +91,7 @@ export interface StarterServer {
   /** Web-standard handler. Export it from Cloudflare Workers, Bun, Deno, Vercel, Netlify or any fetch-based router. */
   fetch(request: Request): Promise<Response>;
   /** Builds an SDK server for one request or connection. Used by the stdio and Node runtimes. */
-  build(context: McpRequestContext, principal: Principal): McpServer;
+  build(context: McpRequestContext, principal: Principal, token?: string): McpServer;
   /** Notify subscribed clients that the tool list changed. */
   toolsChanged(): void;
   close(): Promise<void>;
@@ -149,7 +149,7 @@ export function defineServer<Services = unknown>(config: ServerConfig<Services>)
   const mcpPath = http.path ?? (config.publicUrl ? new URL(config.publicUrl).pathname : '/mcp');
   const resource = config.publicUrl ? new URL(config.publicUrl) : undefined;
 
-  const build = (context: McpRequestContext, principal: Principal): McpServer => {
+  const build = (context: McpRequestContext, principal: Principal, token?: string): McpServer => {
     const server = new McpServer(
       {
         name: config.name,
@@ -171,6 +171,7 @@ export function defineServer<Services = unknown>(config: ServerConfig<Services>)
       log,
       hooks,
       http: context.requestInfo !== undefined,
+      ...(token ? { token } : {}),
       services: () => (services ??= Promise.resolve(config.services?.(principal, { store, log }))),
     };
     for (const tool of config.tools) registerTool(server, tool, runtime);
@@ -237,8 +238,8 @@ export function defineServer<Services = unknown>(config: ServerConfig<Services>)
     const cors = corsHeaders(request);
 
     if (http.allowedHosts) {
-      const rejected = hostHeaderValidationResponse(request, http.allowedHosts);
-      if (rejected) return rejected;
+      const check = validateHostHeader(request.headers.get('host') ?? url.host, http.allowedHosts);
+      if (!check.ok) return json({ error: 'invalid_host', error_description: check.message }, 403);
     }
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
