@@ -4,6 +4,8 @@ export type { Entitlements, EntitlementDecision, EntitlementRuntime, UsageReques
 export { quota, type QuotaOptions, type PlanLimits, type QuotaPeriod } from './quota.js';
 export { stripeMeter, type StripeMeterOptions } from './stripe.js';
 export { kindeBilling, type KindeBillingOptions } from './kinde.js';
+export { autumn, type AutumnOptions } from './autumn.js';
+export { polar, type PolarOptions } from './polar.js';
 
 /** Every adapter must allow the call. Reservations made before a denial are released. */
 export function allOf(...adapters: Entitlements[]): Entitlements {

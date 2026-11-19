@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allOf, kindeBilling, quota, stripeMeter } from '../src/billing/index.js';
+import { allOf, autumn, kindeBilling, polar, quota, stripeMeter } from '../src/billing/index.js';
 import { createLogger } from '../src/logger.js';
 import { memoryStore } from '../src/store/index.js';
 import type { Principal } from '../src/types.js';
@@ -125,5 +125,57 @@ describe('kindeBilling', () => {
   it('denies when there is no token to check with', async () => {
     const billing = kindeBilling({ domain: 'acme.kinde.com', fetch: accountApi([]) });
     expect((await billing.reserve(req(user()), runtime())).allowed).toBe(false);
+  });
+});
+
+describe('autumn', () => {
+  it('checks with the call units and tracks on success', async () => {
+    const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
+    let allowed = true;
+    const billing = autumn({
+      secretKey: 'am_sk_test',
+      upgradeUrl: 'https://acme.com/pricing',
+      fetch: (async (url: string, init: RequestInit) => {
+        expect((init.headers as Record<string, string>).authorization).toBe('Bearer am_sk_test');
+        calls.push({ path: new URL(url).pathname, body: JSON.parse(String(init.body)) });
+        return Response.json({ allowed });
+      }) as never,
+    });
+    const rt = { store: memoryStore(), log };
+    const r = req(user({ orgId: 'org_5' }), 3);
+    expect((await billing.reserve(r, rt)).allowed).toBe(true);
+    await billing.settle({ ...r, ok: true }, rt);
+    await billing.settle({ ...r, ok: false }, rt);
+    expect(calls).toEqual([
+      { path: '/v1/check', body: { customer_id: 'org_5', feature_id: 'search', required_balance: 3 } },
+      { path: '/v1/track', body: { customer_id: 'org_5', feature_id: 'search', value: 3 } },
+    ]);
+    allowed = false;
+    expect(await billing.reserve(r, rt)).toMatchObject({ allowed: false, upgradeUrl: 'https://acme.com/pricing' });
+  });
+});
+
+describe('polar', () => {
+  it('gates on a meter balance and ingests events', async () => {
+    const calls: string[] = [];
+    const bodies: unknown[] = [];
+    const billing = polar({
+      accessToken: 'polar_oat',
+      eventName: 'mcp_call',
+      gateOnMeterId: 'meter_1',
+      server: 'sandbox',
+      fetch: (async (url: string, init?: RequestInit) => {
+        calls.push(`${init?.method ?? 'GET'} ${url}`);
+        if (url.includes('/state')) return Response.json({ id: 'c', active_meters: [{ meter_id: 'meter_1', balance: 4 }] });
+        bodies.push(JSON.parse(String(init!.body)));
+        return Response.json({ inserted: 1 });
+      }) as never,
+    });
+    const rt = { store: memoryStore(), log };
+    expect(await billing.reserve(req(user(), 3), rt)).toMatchObject({ allowed: true, remaining: 1 });
+    expect((await billing.reserve(req(user(), 5), rt)).allowed).toBe(false);
+    await billing.settle({ ...req(user(), 2), ok: true }, rt);
+    expect(calls[0]).toBe('GET https://sandbox-api.polar.sh/v1/customers/external/u1/state');
+    expect(bodies[0]).toMatchObject({ events: [{ name: 'mcp_call', external_customer_id: 'u1', metadata: { units: 2, tool: 'search' } }] });
   });
 });
