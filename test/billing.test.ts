@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allOf, quota, stripeMeter } from '../src/billing/index.js';
+import { allOf, kindeBilling, quota, stripeMeter } from '../src/billing/index.js';
 import { createLogger } from '../src/logger.js';
 import { memoryStore } from '../src/store/index.js';
 import type { Principal } from '../src/types.js';
@@ -68,5 +68,62 @@ describe('allOf', () => {
     const both = allOf(first, deny);
     expect((await both.reserve(req(user()), runtime)).allowed).toBe(false);
     expect((await first.reserve(req(user()), runtime)).allowed).toBe(true);
+  });
+});
+
+describe('kindeBilling', () => {
+  const runtime = () => ({ store: memoryStore(), log });
+  const accountApi = (entitlements: unknown[], calls: string[] = []) =>
+    (async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push(`${init?.method ?? 'GET'} ${url.replace('https://acme.kinde.com', '')}`);
+      if (url.includes('/account_api/v1/entitlements')) {
+        expect((init?.headers as Record<string, string>).authorization).toBe('Bearer user-token');
+        return Response.json({ data: { org_code: 'org_1', plans: [], entitlements }, metadata: { has_more: false } });
+      }
+      if (url.endsWith('/oauth2/token')) return Response.json({ access_token: 'm2m', expires_in: 3600 });
+      if (url.includes('/api/v1/user?')) return Response.json({ id: 'u1', billing: { customer_id: 'customer_1' } });
+      if (url.includes('/api/v1/billing/agreements')) return Response.json({ code: 'OK', agreements: [{ id: 'agreement_9', plan_code: 'pro' }] });
+      if (url.endsWith('/api/v1/billing/meter_usage')) return Response.json({ code: 'OK', message: 'Success' });
+      return new Response('not found', { status: 404 });
+    }) as never;
+
+  it('allows features on the plan and denies the rest', async () => {
+    const billing = kindeBilling({ domain: 'acme.kinde.com', upgradeUrl: 'https://acme.com/pricing', fetch: accountApi([{ feature_key: 'search', entitlement_limit_max: null }]) });
+    const rt = runtime();
+    expect((await billing.reserve({ ...req(user()), token: 'user-token' }, rt)).allowed).toBe(true);
+    expect(await billing.reserve({ ...req(user(), 1, 'export'), token: 'user-token' }, rt)).toMatchObject({
+      allowed: false,
+      reason: 'Your plan does not include export.',
+      upgradeUrl: 'https://acme.com/pricing',
+    });
+  });
+
+  it('enforces entitlement_limit_max and refunds failures', async () => {
+    const billing = kindeBilling({ domain: 'acme.kinde.com', fetch: accountApi([{ feature_key: 'search', feature_name: 'searches', entitlement_limit_max: 2 }]) });
+    const rt = runtime();
+    const r = { ...req(user()), token: 'user-token' };
+    expect((await billing.reserve(r, rt)).allowed).toBe(true);
+    expect((await billing.reserve(r, rt)).allowed).toBe(true);
+    expect(await billing.reserve(r, rt)).toMatchObject({ allowed: false, reason: expect.stringContaining('all 2 searches') });
+    await billing.settle({ ...r, ok: false }, rt);
+    expect((await billing.reserve(r, rt)).allowed).toBe(true);
+  });
+
+  it('reports usage to the agreement for the feature', async () => {
+    const calls: string[] = [];
+    const billing = kindeBilling({ domain: 'acme.kinde.com', meter: { clientId: 'c', clientSecret: 's' }, fetch: accountApi([{ feature_key: 'search' }], calls) });
+    await billing.settle({ ...req(user(), 2), token: 'user-token', ok: true }, runtime());
+    expect(calls).toEqual([
+      'POST /oauth2/token',
+      'GET /api/v1/user?id=u1&expand=billing',
+      'GET /api/v1/billing/agreements?customer_id=customer_1&feature_code=search',
+      'POST /api/v1/billing/meter_usage',
+    ]);
+  });
+
+  it('denies when there is no token to check with', async () => {
+    const billing = kindeBilling({ domain: 'acme.kinde.com', fetch: accountApi([]) });
+    expect((await billing.reserve(req(user()), runtime())).allowed).toBe(false);
   });
 });

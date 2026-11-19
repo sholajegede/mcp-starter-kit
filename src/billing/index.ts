@@ -3,6 +3,7 @@ import type { Entitlements } from './types.js';
 export type { Entitlements, EntitlementDecision, EntitlementRuntime, UsageRequest } from './types.js';
 export { quota, type QuotaOptions, type PlanLimits, type QuotaPeriod } from './quota.js';
 export { stripeMeter, type StripeMeterOptions } from './stripe.js';
+export { kindeBilling, type KindeBillingOptions } from './kinde.js';
 
 /** Every adapter must allow the call. Reservations made before a denial are released. */
 export function allOf(...adapters: Entitlements[]): Entitlements {
