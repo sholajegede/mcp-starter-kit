@@ -11,6 +11,7 @@ interface EnvVar {
 
 const VERSIONS = {
   zod: '^4.2.0',
+  '@opentelemetry/api': '^1.9.0',
   '@modelcontextprotocol/node': '^2.1.0',
   pg: '^8.16.0',
   '@types/pg': '^8.15.0',
@@ -85,6 +86,15 @@ const billingEnv: Record<ProjectOptions['billing'], EnvVar[]> = {
     { name: 'STRIPE_METER_EVENT', example: 'mcp_tool_calls', comment: 'Event name of your Stripe Billing Meter' },
   ],
   kinde: [{ name: 'UPGRADE_URL', example: 'https://your-app.com/pricing', comment: 'Shown to users whose plan lacks a feature', optional: true }],
+  autumn: [
+    { name: 'AUTUMN_SECRET_KEY', example: 'am_sk_test_...', comment: 'Autumn secret key. Feature ids default to tool names' },
+    { name: 'UPGRADE_URL', example: 'https://your-app.com/pricing', comment: 'Shown to users who run out', optional: true },
+  ],
+  polar: [
+    { name: 'POLAR_ACCESS_TOKEN', example: 'polar_oat_...', comment: 'Polar organization access token' },
+    { name: 'POLAR_EVENT_NAME', example: 'mcp_tool_call', comment: 'Event name your Polar meter filters on' },
+    { name: 'POLAR_SERVER', example: 'sandbox', comment: 'sandbox or production', optional: true },
+  ],
 };
 
 const llmEnv: Record<ProjectOptions['llm'], EnvVar[]> = {
@@ -397,6 +407,20 @@ function billingCode(o: ProjectOptions): { imports: string[]; expr: string | und
         imports: ["import { kindeBilling } from 'mcp-starter-kit/billing';"],
         expr: `kindeBilling({ domain: env('KINDE_DOMAIN'), upgradeUrl: optionalEnv('UPGRADE_URL') })`,
       };
+    case 'autumn':
+      return {
+        imports: ["import { autumn } from 'mcp-starter-kit/billing';"],
+        expr: `autumn({ secretKey: env('AUTUMN_SECRET_KEY'), upgradeUrl: optionalEnv('UPGRADE_URL') })`,
+      };
+    case 'polar':
+      return {
+        imports: ["import { polar } from 'mcp-starter-kit/billing';"],
+        expr: `polar({
+    accessToken: env('POLAR_ACCESS_TOKEN'),
+    eventName: env('POLAR_EVENT_NAME'),
+    server: optionalEnv('POLAR_SERVER') === 'production' ? 'production' : 'sandbox',
+  })`,
+      };
   }
 }
 
@@ -449,11 +473,14 @@ function serverFile(o: ProjectOptions): string {
   const usesEnv = /\benv\(/.test([billing.expr, llm.expr, auth.expr].join(' '));
   const imports = [
     "import { defineServer, type ServerConfig } from 'mcp-starter-kit';",
+    "import { openTelemetry } from 'mcp-starter-kit/otel';",
     ...auth.imports,
     ...billing.imports,
     ...llm.imports,
     `import { ${usesEnv ? 'env, optionalEnv' : 'optionalEnv'} } from './env.js';`,
     "import { createStore, notesRepository } from './db/index.js';",
+    "import { prompts } from './prompts.js';",
+    "import { resources } from './resources.js';",
     "import { tools, type Services } from './tools/index.js';",
   ];
 
@@ -476,6 +503,9 @@ export function createServer(overrides: Overrides = {}) {
     ${llm.expr ? `llm: has('llm') ? overrides.llm : ${llm.expr},` : ''}
     services: (principal) => ({ notes: notesRepository(principal.orgId ?? principal.id) }),
     tools,
+    resources,
+    prompts,
+    telemetry: openTelemetry(),
     logLevel: (optionalEnv('LOG_LEVEL') as 'info' | undefined) ?? 'info',
     http: { allowedHosts: [new URL(publicUrl).hostname, 'localhost', '127.0.0.1'] },
     ...overrides,
@@ -777,7 +807,7 @@ function readme(o: ProjectOptions, scripts: Record<string, string>): string {
 
   return `# ${o.name}
 
-An MCP server built on [mcp-starter-kit](https://github.com/sholajegede/mcp-starter-kit). It ships with a notes toolset you can replace with your own tools: \`search_notes\`, \`create_note\`, \`delete_note\` (asks the user to confirm), \`whoami\`${o.llm !== 'none' ? ' and `summarize_note` (calls a model)' : ''}.
+An MCP server built on [mcp-starter-kit](https://github.com/sholajegede/mcp-starter-kit). It ships with a notes example to replace with your own: the tools \`search_notes\`, \`create_note\`, \`delete_note\` (asks the user to confirm), \`whoami\`${o.llm !== 'none' ? ' and `summarize_note` (calls a model)' : ''}, a \`notes://{id}\` resource, and a \`weekly_review\` prompt.
 
 \`\`\`
 client ──▶ ${o.runtime} ──▶ auth (${o.auth}) ──▶ scopes, rate limits${o.billing !== 'none' ? `, ${o.billing} billing` : ''} ──▶ tools ──▶ ${o.store}
@@ -845,6 +875,10 @@ npx mcp-starter-kit add tool create_invoice
 
 This creates \`src/tools/create-invoice.ts\` and registers it. Tools get typed input, \`ctx.principal\`, \`ctx.services\`${o.llm !== 'none' ? ', `ctx.llm`' : ''} and options for scopes, rate limits, cost and confirmation.
 
+## Observability
+
+Logs are JSON lines on stderr. Every tool call, resource read and prompt render is also an OpenTelemetry span with the MCP semantic conventions, plus an \`mcp.server.operation.duration\` histogram. They cost nothing until you register an OpenTelemetry SDK with an exporter for your backend, and when a client sends a \`traceparent\`, the span joins its trace.
+
 ## Test
 
 \`\`\`bash
@@ -872,6 +906,38 @@ export function env(name: string): string {
 }
 `;
   files['src/server.ts'] = serverFile(o);
+  files['src/resources.ts'] = `import { defineResourceTemplate, ToolError, type AnyResource } from 'mcp-starter-kit';
+import type { Services } from './tools/index.js';
+
+export const resources: AnyResource[] = [
+  defineResourceTemplate<Services>({
+    name: 'note',
+    title: 'Note',
+    description: 'A single note as Markdown, addressed by its id.',
+    uriTemplate: 'notes://{id}',
+    mimeType: 'text/markdown',
+    read: async ({ id }, ctx) => {
+      const note = await ctx.services.notes.get(id ?? '');
+      if (!note) throw new ToolError(\`No note with id \${id}.\`);
+      return \`# \${note.title}\\n\\n\${note.body}\`;
+    },
+  }),
+];
+`;
+  files['src/prompts.ts'] = `import { definePrompt, type AnyPrompt } from 'mcp-starter-kit';
+import { z } from 'zod';
+
+export const prompts: AnyPrompt[] = [
+  definePrompt({
+    name: 'weekly_review',
+    title: 'Weekly review',
+    description: 'Review recent notes on a topic and list open decisions.',
+    args: z.object({ topic: z.string().describe('What to review, e.g. "launch"') }),
+    render: ({ topic }) =>
+      \`Search my notes for "\${topic}" with search_notes, then list the decisions that are still open, who owns each one, and what is blocking it.\`,
+  }),
+];
+`;
   files['src/db/index.ts'] = store.file;
   files['src/notes/types.ts'] = `export interface Note {
   id: string;
@@ -943,6 +1009,16 @@ describe('${o.name}', () => {
     expect((found.structuredContent as { notes: unknown[] }).notes).toHaveLength(1);
   });
 
+  it('serves notes as resources and renders the review prompt', async () => {
+    const client = await connect();
+    const created = await client.callTool({ name: 'create_note', arguments: { title: 'Pricing', body: 'Decide on tiers' } });
+    const { id } = created.structuredContent as { id: string };
+    const { contents } = await client.readResource({ uri: \`notes://\${id}\` });
+    expect((contents[0] as { text: string }).text).toContain('# Pricing');
+    const prompt = await client.getPrompt({ name: 'weekly_review', arguments: { topic: 'pricing' } });
+    expect(prompt.messages).toHaveLength(1);
+  });
+
   it('refuses duplicate titles with a message the model can act on', async () => {
     const client = await connect();
     await client.callTool({ name: 'create_note', arguments: { title: 'Launch plan', body: 'a' } });
@@ -952,7 +1028,7 @@ describe('${o.name}', () => {
 });
 `;
 
-  const deps: Record<string, string> = { 'mcp-starter-kit': `^${kitVersion}`, zod: VERSIONS.zod };
+  const deps: Record<string, string> = { 'mcp-starter-kit': `^${kitVersion}`, zod: VERSIONS.zod, '@opentelemetry/api': VERSIONS['@opentelemetry/api'] };
   for (const d of [...store.deps, ...rt.deps]) deps[d] = VERSIONS[d as keyof typeof VERSIONS];
   const devDeps: Record<string, string> = {
     '@modelcontextprotocol/client': VERSIONS['@modelcontextprotocol/client'],
@@ -977,7 +1053,7 @@ describe('${o.name}', () => {
         version: '0.1.0',
         private: true,
         type: 'module',
-        engines: { node: '>=20.6' },
+        engines: { node: '>=22' },
         scripts,
         dependencies: sort(deps),
         devDependencies: sort(devDeps),

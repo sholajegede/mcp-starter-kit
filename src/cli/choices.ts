@@ -30,6 +30,8 @@ export const BILLING = [
   { value: 'quota', label: 'Plan quotas', hint: 'free and pro limits in your store' },
   { value: 'stripe', label: 'Plan quotas + Stripe usage billing' },
   { value: 'kinde', label: 'Kinde Billing', hint: 'needs Kinde auth' },
+  { value: 'autumn', label: 'Autumn' },
+  { value: 'polar', label: 'Polar usage billing' },
 ] as const;
 
 export const LLM = [
@@ -82,7 +84,7 @@ export function isChoice<T extends readonly { value: string }[]>(list: T, value:
 export function validateOptions(o: ProjectOptions): string | undefined {
   if (!/^[a-z0-9][a-z0-9-_.]{0,213}$/.test(o.name)) return 'Project name must be a valid npm package name (lowercase, no spaces).';
   if (o.billing === 'kinde' && o.auth !== 'kinde') return 'Kinde Billing needs Kinde auth.';
-  if ((o.billing === 'quota' || o.billing === 'stripe') && o.auth === 'none') return 'Billing needs an auth provider so usage can be tied to a user.';
+  if (o.billing !== 'none' && o.auth === 'none') return 'Billing needs an auth provider so usage can be tied to a user.';
   if (o.runtime === 'cloudflare' && o.store === 'redis') return 'Cloudflare Workers cannot open raw Redis connections. Use Upstash instead.';
   if (o.runtime === 'cloudflare' && o.store === 'mongo') return 'Cloudflare Workers cannot open MongoDB driver connections. Pick Postgres, SQLite (Turso) or Upstash.';
   if ((o.runtime === 'cloudflare' || o.runtime === 'vercel') && o.store === 'memory') return 'Serverless instances do not share memory. Pick a database so limits hold across instances.';
