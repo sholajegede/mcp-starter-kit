@@ -19,9 +19,13 @@ import type { Awaitable, RateLimitRule, ToolContext } from './types.js';
 
 type Infer<S> = S extends StandardSchemaWithJSON ? StandardSchemaWithJSON.InferOutput<S> : Record<string, never>;
 
+/** Full results without the open index signature, so literal and enum types in output schemas keep their narrow types. */
+export type ToolResultEnvelope = Pick<CallToolResult, 'content' | 'isError' | 'structuredContent' | '_meta'>;
+export type InputRequiredEnvelope = Pick<InputRequiredResult, 'resultType' | 'inputRequests' | 'requestState'>;
+
 export type ToolReturn<O> = O extends StandardSchemaWithJSON
-  ? StandardSchemaWithJSON.InferOutput<O> | CallToolResult | InputRequiredResult
-  : string | Record<string, unknown> | unknown[] | CallToolResult | InputRequiredResult | void;
+  ? StandardSchemaWithJSON.InferOutput<O> | ToolResultEnvelope | InputRequiredEnvelope
+  : string | Record<string, unknown> | unknown[] | ToolResultEnvelope | InputRequiredEnvelope | void;
 
 export interface ToolDefinition<
   I extends StandardSchemaWithJSON | undefined = StandardSchemaWithJSON | undefined,
@@ -50,7 +54,7 @@ export interface ToolDefinition<
   /** Abort the handler after this long. Defaults to 60 seconds. */
   timeoutMs?: number;
   _meta?: Record<string, unknown>;
-  handler: (input: Infer<I>, ctx: ToolContext<Services>) => Awaitable<ToolReturn<O>>;
+  handler: NoInfer<(input: Infer<I>, ctx: ToolContext<Services>) => Awaitable<ToolReturn<O>>>;
 }
 
 export type AnyTool = ToolDefinition<any, any, any>;
